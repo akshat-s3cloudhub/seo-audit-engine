@@ -86,16 +86,23 @@ app.get('/api/sessions/:id', async (req, res) => {
 });
 
 // --- Crawl ---
-app.post('/api/crawl', (req, res) => {
+app.post('/api/crawl', async (req, res) => {
   const { url, maxPages, batchSize, delayMs } = req.body;
   const targetUrl = url || 'https://theddcgroup.com/';
+  const { v4: uuidv4 } = require('uuid');
+  const sessionId = uuidv4();
 
-  startCrawl(targetUrl, { maxPages, batchSize, delayMs })
+  // Create session IN THE FOREGROUND to guarantee it exists before Vercel freezes execution!
+  await db.createSession(sessionId, targetUrl);
+
+  // Run async crawler in background
+  startCrawl(targetUrl, sessionId, { maxPages, batchSize, delayMs })
     .catch(e => console.error('[API] Crawl error:', e.message));
 
   res.json({
     success: true,
     message: 'Crawl started',
+    sessionId,
     targetUrl
   });
 });

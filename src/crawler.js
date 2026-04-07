@@ -11,8 +11,7 @@ const crawlState = {};
 /**
  * Start a full crawl of a target URL
  */
-async function startCrawl(targetUrl, options = {}) {
-  const sessionId = uuidv4();
+async function startCrawl(targetUrl, sessionId, options = {}) {
   const rootDomain = getRootDomain(targetUrl);
   const batchSize = options.batchSize || 10;
   const maxPages = options.maxPages || 500;
@@ -23,9 +22,6 @@ async function startCrawl(targetUrl, options = {}) {
   console.log(`[Crawler] Target: ${targetUrl}`);
   console.log(`[Crawler] Root domain: ${rootDomain}`);
   console.log(`${'='.repeat(60)}\n`);
-
-  // Create session
-  await db.createSession(sessionId, targetUrl);
 
   crawlState[sessionId] = {
     status: 'running',
