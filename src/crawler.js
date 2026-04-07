@@ -25,7 +25,7 @@ async function startCrawl(targetUrl, options = {}) {
   console.log(`${'='.repeat(60)}\n`);
 
   // Create session
-  db.createSession(sessionId, targetUrl);
+  await db.createSession(sessionId, targetUrl);
 
   crawlState[sessionId] = {
     status: 'running',
@@ -103,10 +103,10 @@ async function startCrawl(targetUrl, options = {}) {
     for (const url of crawlState[sessionId].discovered) {
       const subdomain = getSubdomain(url);
       const domain = getRootDomain(url);
-      db.insertPage(sessionId, url, domain, subdomain);
+      await db.insertPage(sessionId, url, domain, subdomain);
     }
 
-    db.updateSession(sessionId, {
+    await db.updateSession(sessionId, {
       total_discovered: crawlState[sessionId].discovered.size
     });
 
@@ -118,7 +118,7 @@ async function startCrawl(targetUrl, options = {}) {
     let totalErrors = 0;
 
     while (true) {
-      const pending = db.getPendingPages(sessionId, batchSize);
+      const pending = await db.getPendingPages(sessionId, batchSize);
       if (pending.length === 0) break;
 
       // Process batch
@@ -155,7 +155,7 @@ async function startCrawl(targetUrl, options = {}) {
           }, issues);
 
           // Update database
-          db.updatePage(sessionId, page.original_url, {
+          await db.updatePage(sessionId, page.original_url, {
             final_url: data.finalUrl,
             status_code: data.statusCode,
             is_redirect: data.isRedirect ? 1 : 0,
@@ -185,7 +185,7 @@ async function startCrawl(targetUrl, options = {}) {
 
         } catch (e) {
           console.error(`[Extract] Error on ${page.original_url}: ${e.message}`);
-          db.updatePage(sessionId, page.original_url, {
+          await db.updatePage(sessionId, page.original_url, {
             crawl_status: 'error',
             error_message: e.message
           });
@@ -202,8 +202,8 @@ async function startCrawl(targetUrl, options = {}) {
       }
 
       // Update session stats
-      const stats = db.getSessionStats(sessionId);
-      db.updateSession(sessionId, {
+      const stats = await db.getSessionStats(sessionId);
+      await db.updateSession(sessionId, {
         total_crawled: totalCrawled,
         total_errors: totalErrors,
         avg_score: Math.round(stats.avg_score || 0)
@@ -214,8 +214,8 @@ async function startCrawl(targetUrl, options = {}) {
     crawlState[sessionId].status = 'completed';
     crawlState[sessionId].phase = 'done';
 
-    const finalStats = db.getSessionStats(sessionId);
-    db.updateSession(sessionId, {
+    const finalStats = await db.getSessionStats(sessionId);
+    await db.updateSession(sessionId, {
       status: 'completed',
       total_crawled: totalCrawled,
       total_errors: totalErrors,
@@ -236,7 +236,7 @@ async function startCrawl(targetUrl, options = {}) {
   } catch (e) {
     console.error(`[Crawler] Fatal error: ${e.message}`);
     crawlState[sessionId].status = 'error';
-    db.updateSession(sessionId, { status: 'error' });
+    await db.updateSession(sessionId, { status: 'error' });
   } finally {
     await closeBrowser();
   }

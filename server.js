@@ -46,22 +46,22 @@ app.use(express.static(path.join(__dirname, 'public')));
 // ============================================================
 
 // --- Sessions ---
-app.get('/api/sessions', (req, res) => {
+app.get('/api/sessions', async (req, res) => {
   try {
-    const sessions = db.getAllSessions();
+    const sessions = await db.getAllSessions();
     res.json({ success: true, data: sessions });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }
 });
 
-app.get('/api/sessions/latest', (req, res) => {
+app.get('/api/sessions/latest', async (req, res) => {
   try {
-    const session = db.getLatestSession();
+    const session = await db.getLatestSession();
     if (!session) return res.json({ success: true, data: null });
 
-    const stats = db.getSessionStats(session.id);
-    const issues = db.getIssueSummary(session.id);
+    const stats = await db.getSessionStats(session.id);
+    const issues = await db.getIssueSummary(session.id);
 
     res.json({ success: true, data: { ...session, stats, issues } });
   } catch (e) {
@@ -69,15 +69,15 @@ app.get('/api/sessions/latest', (req, res) => {
   }
 });
 
-app.get('/api/sessions/:id', (req, res) => {
+app.get('/api/sessions/:id', async (req, res) => {
   try {
-    const session = db.getSession(req.params.id);
+    const session = await db.getSession(req.params.id);
     if (!session) {
       return res.status(404).json({ success: false, error: 'Session not found' });
     }
 
-    const stats = db.getSessionStats(session.id);
-    const issues = db.getIssueSummary(session.id);
+    const stats = await db.getSessionStats(session.id);
+    const issues = await db.getIssueSummary(session.id);
 
     res.json({ success: true, data: { ...session, stats, issues } });
   } catch (e) {
@@ -100,14 +100,14 @@ app.post('/api/crawl', (req, res) => {
   });
 });
 
-app.get('/api/crawl/status/:sessionId', (req, res) => {
+app.get('/api/crawl/status/:sessionId', async (req, res) => {
   const state = getCrawlState(req.params.sessionId);
 
   if (!state) {
-    const session = db.getSession(req.params.sessionId);
+    const session = await db.getSession(req.params.sessionId);
 
     if (session) {
-      const stats = db.getSessionStats(session.id);
+      const stats = await db.getSessionStats(session.id);
 
       return res.json({
         success: true,
@@ -126,7 +126,7 @@ app.get('/api/crawl/status/:sessionId', (req, res) => {
 });
 
 // --- Pages ---
-app.get('/api/pages/:sessionId', (req, res) => {
+app.get('/api/pages/:sessionId', async (req, res) => {
   try {
     const filters = {
       domain: req.query.domain || undefined,
@@ -139,7 +139,7 @@ app.get('/api/pages/:sessionId', (req, res) => {
       limit: req.query.limit ? parseInt(req.query.limit) : undefined
     };
 
-    const pages = db.getPagesBySession(req.params.sessionId, filters);
+    const pages = await db.getPagesBySession(req.params.sessionId, filters);
 
     res.json({ success: true, data: pages, total: pages.length });
   } catch (e) {
@@ -147,9 +147,9 @@ app.get('/api/pages/:sessionId', (req, res) => {
   }
 });
 
-app.get('/api/page/:id', (req, res) => {
+app.get('/api/page/:id', async (req, res) => {
   try {
-    const page = db.getPageById(parseInt(req.params.id));
+    const page = await db.getPageById(parseInt(req.params.id));
 
     if (!page) {
       return res.status(404).json({ success: false, error: 'Page not found' });
@@ -168,10 +168,10 @@ app.get('/api/page/:id', (req, res) => {
 });
 
 // --- Stats ---
-app.get('/api/stats/:sessionId', (req, res) => {
+app.get('/api/stats/:sessionId', async (req, res) => {
   try {
-    const stats = db.getSessionStats(req.params.sessionId);
-    const issues = db.getIssueSummary(req.params.sessionId);
+    const stats = await db.getSessionStats(req.params.sessionId);
+    const issues = await db.getIssueSummary(req.params.sessionId);
 
     res.json({ success: true, data: { ...stats, issues } });
   } catch (e) {

@@ -1,0 +1,45 @@
+-- Run this script in your Supabase SQL Editor to create the necessary tables.
+
+CREATE TABLE IF NOT EXISTS sessions (
+    id TEXT PRIMARY KEY,
+    target_url TEXT NOT NULL,
+    status TEXT DEFAULT 'running',
+    total_discovered INTEGER DEFAULT 0,
+    total_crawled INTEGER DEFAULT 0,
+    total_errors INTEGER DEFAULT 0,
+    avg_score INTEGER DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc', now()),
+    completed_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE TABLE IF NOT EXISTS pages (
+    id SERIAL PRIMARY KEY,
+    session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE,
+    original_url TEXT NOT NULL,
+    domain TEXT,
+    subdomain TEXT,
+    final_url TEXT,
+    status_code INTEGER,
+    is_redirect INTEGER DEFAULT 0,
+    redirect_chain TEXT,
+    title TEXT,
+    title_length INTEGER,
+    meta_description TEXT,
+    meta_description_length INTEGER,
+    h1_text TEXT,
+    h1_count INTEGER,
+    canonical_url TEXT,
+    word_count INTEGER,
+    schema_json TEXT,
+    og_tags TEXT,
+    internal_links_count INTEGER,
+    external_links_count INTEGER,
+    load_time_ms INTEGER,
+    score INTEGER,
+    score_breakdown TEXT,
+    issues TEXT,
+    crawl_status TEXT DEFAULT 'pending',
+    error_message TEXT,
+    last_crawled TIMESTAMP WITH TIME ZONE,
+    UNIQUE(session_id, original_url)
+);
