@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const db = require('./src/database');
-const { startCrawl, getCrawlState } = require('./src/crawler');
+const { startCrawl, getCrawlState, processOneBatch } = require('./src/crawler');
 const { generateCSV, generatePDF } = require('./src/exporter');
 
 const app = express();
@@ -58,14 +58,33 @@ app.get('/api/sessions', async (req, res) => {
 app.get('/api/sessions/latest', async (req, res) => {
   try {
     const session = await db.getLatestSession();
-    if (!session) return res.json({ success: true, data: null });
+    if (!session) {
+      return res.json({ success: true, data: null });
+    }
+
+    // VERCEL HACK: Process exactly 1 page from the queue while the function is artificially kept awake by the frontend polling!
+    if (session.status === 'running') {
+      try {
+        await processOneBatch(session.id);
+      } catch (e) {
+        console.error('[API] Polling process error:', e.message);
+      }
+    }
 
     const stats = await db.getSessionStats(session.id);
     const issues = await db.getIssueSummary(session.id);
 
-    res.json({ success: true, data: { ...session, stats, issues } });
-  } catch (e) {
-    res.status(500).json({ success: false, error: e.message });
+    res.json({
+      success: true,
+      data: {
+        ...session,
+        stats,
+        issues
+      }
+    });
+  } catch (error) {
+    console.error('API Error:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
