@@ -1,36 +1,11 @@
-const { chromium } = require('playwright');
-
-let browser = null;
-
-async function getBrowser() {
-  if (!browser) {
-    browser = await chromium.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-    });
-  }
-  return browser;
-}
-
-async function closeBrowser() {
-  if (browser) {
-    await browser.close();
-    browser = null;
-  }
-}
+const axios = require('axios');
+const cheerio = require('cheerio');
 
 /**
- * Extract SEO data from a URL using Playwright
- * Handles JS-rendered pages and follows redirects
+ * Extract SEO data from a URL using HTTP requests (Vercel-compatible)
+ * Note: This is a simplified version without JS rendering for serverless deployment
  */
 async function extractPageData(url) {
-  const b = await getBrowser();
-  const context = await b.newContext({
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    viewport: { width: 1920, height: 1080 }
-  });
-
-  const page = await context.newPage();
   const result = {
     finalUrl: url,
     statusCode: null,
@@ -53,151 +28,114 @@ async function extractPageData(url) {
   };
 
   try {
-    // Track redirects
-    const redirects = [];
-    page.on('response', (response) => {
-      const status = response.status();
-      if (status >= 300 && status < 400) {
-        redirects.push({
-          url: response.url(),
-          status: status,
-          location: response.headers()['location']
-        });
+    const startTime = Date.now();
+
+    const response = await axios.get(url, {
+      timeout: 30000,
+      maxRedirects: 5,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1'
+      },
+      validateStatus: function (status) {
+        return status < 500; // Accept all status codes below 500
       }
     });
 
-    const startTime = Date.now();
-
-    const response = await page.goto(url, {
-      waitUntil: 'domcontentloaded',
-      timeout: 60000
-    });
-
-    await page.waitForLoadState("networkidle");
-    await page.waitForTimeout(2000);
-    await page.waitForSelector("body", { timeout: 10000 });
-    await page.waitForFunction(() => {
-      return document.readyState === "complete";
-    });
-    
-    // Hydration check for dynamic JS
-    try {
-      await page.waitForFunction(() => document.body.innerText.length > 200, { timeout: 5000 });
-    } catch(e) {
-      // It might legitimately be a small page or an error page, so we catch and proceed
-    }
-
     result.loadTimeMs = Date.now() - startTime;
-    result.statusCode = response ? response.status() : null;
-    result.finalUrl = page.url();
-
-    if (redirects.length > 0) {
-      result.isRedirect = true;
-      result.redirectChain = redirects;
-    }
+    result.statusCode = response.status;
+    result.finalUrl = response.request.res.responseUrl || url;
 
     if (result.finalUrl !== url) {
       result.isRedirect = true;
+      // Note: We can't track full redirect chain with axios easily
     }
 
-    // Only extract SEO data for successful pages
-    if (result.statusCode && result.statusCode < 400) {
-      const data = await page.evaluate(() => {
-        // Fake 404
-        function detectFake404(doc) {
-          const t = doc.title.toLowerCase();
-          const b = doc.body.innerText.toLowerCase();
-          if (t.includes('404') || b.includes('page not found') || b.includes('not found')) return true;
-          return false;
+    const $ = cheerio.load(response.data);
+
+    // Extract title
+    result.title = $('title').text().trim();
+    result.titleLength = result.title.length;
+
+    // Extract meta description
+    result.metaDescription = $('meta[name="description"]').attr('content') || '';
+    result.metaDescriptionLength = result.metaDescription.length;
+
+    // Extract H1
+    const h1Elements = $('h1');
+    result.h1Count = h1Elements.length;
+    result.h1Text = h1Elements.first().text().trim();
+
+    // Extract canonical URL
+    result.canonicalUrl = $('link[rel="canonical"]').attr('href') || null;
+
+    // Extract word count from body text
+    const bodyText = $('body').text();
+    result.wordCount = bodyText.split(/\s+/).filter(word => word.length > 0).length;
+
+    // Extract Open Graph tags
+    $('meta[property^="og:"]').each((i, elem) => {
+      const property = $(elem).attr('property').replace('og:', '');
+      const content = $(elem).attr('content');
+      if (content) {
+        result.ogTags[property] = content;
+      }
+    });
+
+    // Extract schema.org JSON-LD
+    const schemaScripts = $('script[type="application/ld+json"]');
+    if (schemaScripts.length > 0) {
+      try {
+        result.schemaJson = JSON.parse(schemaScripts.first().html());
+      } catch (e) {
+        result.schemaJson = null;
+      }
+    }
+
+    // Count internal and external links
+    const links = $('a[href]');
+    let internalCount = 0;
+    let externalCount = 0;
+
+    const urlObj = new URL(url);
+    const baseDomain = urlObj.hostname;
+
+    links.each((i, elem) => {
+      const href = $(elem).attr('href');
+      if (href) {
+        try {
+          const linkUrl = new URL(href, url);
+          if (linkUrl.hostname === baseDomain) {
+            internalCount++;
+          } else {
+            externalCount++;
+          }
+        } catch (e) {
+          // Invalid URL, skip
         }
-        const isFake404 = detectFake404(document);
-        // Title
-        const titleText = document.title?.trim();
-        const ogTitle = document.querySelector('meta[property="og:title"]')?.getAttribute("content")?.trim();
-        const title = titleText || ogTitle || null;
+      }
+    });
 
-        // Meta description - Priority fallback
-        const getMeta = (selector) => {
-          const el = document.querySelector(selector);
-          return el ? el.getAttribute("content")?.trim() || null : null;
-        };
+    result.internalLinksCount = internalCount;
+    result.externalLinksCount = externalCount;
 
-        const metaDescription = 
-          getMeta('meta[name="description" i]') || 
-          getMeta('meta[property="og:description" i]') || 
-          getMeta('meta[name="twitter:description" i]') || 
-          null;
+  } catch (error) {
+    result.error = error.message;
+    result.statusCode = error.response ? error.response.status : null;
+  }
 
-        // H1 Extraction 
-        const h1Elements = document.querySelectorAll('h1');
-        const h1Count = h1Elements.length;
-        const h1s = Array.from(h1Elements)
-          .map(el => (el.innerText ? el.innerText.trim() : el.textContent?.trim()))
-          .filter(Boolean);
-        const h1Text = h1s.length > 0 ? h1s[0] : null;
+  return result;
+}
 
-        // Canonical
-        const canonicalTag = document.querySelector('link[rel="canonical"]');
-        const canonicalUrl = canonicalTag?.href?.trim() || window.location.href;
-        const isCanonicalMissing = !canonicalTag;
+async function closeBrowser() {
+  // No browser to close in HTTP-only version
+}
 
-        // Word count (MAIN CONTENT ONLY)
-        function getCleanText(document) {
-          const main = document.querySelector("main") || document.querySelector("article") || document.body;
-          const clone = main.cloneNode(true);
-          clone.querySelectorAll("script, style, noscript, nav, footer, header").forEach(el => el.remove());
-          
-          return clone.innerText
-            .replace(/\s+/g, ' ')
-            .trim();
-        }
-        const wordCountStr = getCleanText(document);
-        const wordCount = wordCountStr ? wordCountStr.split(' ').length : 0;
-
-        // Page Type Detection
-        function detectPageType(url, document) {
-          const path = url.toLowerCase();
-          if (path.includes('/blog') || path.includes('/news') || path.includes('/category') || path.includes('/resources')) return 'listing';
-          const articleSchema = document.querySelector('script[type="application/ld+json"]')?.innerText || '';
-          if (articleSchema.includes('"@type":"Article"')) return 'article';
-          return 'general';
-        }
-        const pageType = detectPageType(window.location.href, document);
-        
-        // Load Time
-        let loadTime = 0;
-        if (performance.timing.loadEventEnd > 0) {
-          loadTime = (performance.timing.loadEventEnd - performance.timing.navigationStart) / 1000;
-        } else {
-          loadTime = performance.now() / 1000;
-        }
-
-        // Schema/JSON-LD
-        const schemas = [];
-        document.querySelectorAll('script[type="application/ld+json"]').forEach(el => {
-          try {
-            schemas.push(JSON.parse(el.textContent));
-          } catch (e) { /* skip */ }
-        });
-
-        // Open Graph tags
-        const ogTags = {};
-        document.querySelectorAll('meta[property^="og:"]').forEach(el => {
-          const prop = el.getAttribute('property');
-          const content = el.getAttribute('content');
-          if (prop && content) ogTags[prop] = content;
-        });
-
-        // Links
-        const anchors = Array.from(document.querySelectorAll('a[href]'));
-        const internal = [];
-        const external = [];
-        const baseUrl = window.location.href;
-        
-        anchors.forEach(a => {
-          try {
-            const url = new URL(a.href, baseUrl);
-            if (url.hostname === new URL(baseUrl).hostname) {
+module.exports = { extractPageData, closeBrowser };
               internal.push(url.href);
             } else {
               external.push(url.href);
