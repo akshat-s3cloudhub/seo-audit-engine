@@ -14,12 +14,15 @@ pool.on('error', (err) => {
 async function getDbPromise() {
   try {
     console.log("🔌 Connecting to DB...");
+    if (!process.env.DATABASE_URL) {
+      throw new Error("DATABASE_URL environment variable is perfectly empty or undefined! Please check your Vercel settings or local .env file.");
+    }
     const client = await pool.connect();
     console.log("✅ Connected to Supabase PostgreSQL");
     client.release();
     return pool;
   } catch (err) {
-    console.error("❌ DB ERROR:", err.message);
+    console.error("❌ DB ERROR during connect:", err.message);
     throw err;
   }
 }
