@@ -2,6 +2,15 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const db = require('./src/database');
+let dbInitialized = false;
+
+async function initDatabase() {
+  if (!dbInitialized) {
+    await db.getDbPromise();
+    console.log("✅ DB initialized");
+    dbInitialized = true;
+  }
+}
 const { startCrawl, getCrawlState } = require('./src/crawler');
 const { generateCSV, generatePDF } = require('./src/exporter');
 
@@ -10,6 +19,10 @@ const PORT = process.env.PORT || 5000;
 
 app.use(cors());
 app.use(express.json());
+app.use(async (req, res, next) => {
+  await initDatabase();
+  next();
+});
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ============================================================
